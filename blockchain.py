@@ -1,4 +1,3 @@
-# B1029002 王琮翔 B1029043 楊景珺 B1029052 黃御嘉
 import hashlib
 import os
 
