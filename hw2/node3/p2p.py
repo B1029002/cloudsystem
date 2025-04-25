@@ -386,6 +386,6 @@ if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == "--checkAllChains":
         check_all_chains(sys.argv[2])
     else:
-        port = 8003
+        port = 8001
         node = P2PNode(port, PEERS)
         node.start()
