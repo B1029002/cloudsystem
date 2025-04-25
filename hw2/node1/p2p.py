@@ -43,6 +43,8 @@ class P2PNode:
                 self.sock.sendto(full_chain_hash.encode('utf-8'), addr)
 
             elif msg == "REQUEST_CHAIN":
+                # ✅ 修正：確保讀取的是最新硬碟內容
+                self.blockchain.load_from_files()
                 self._send_full_chain(addr)
 
             elif msg.startswith("TRANSACTION_BROADCAST: "):
