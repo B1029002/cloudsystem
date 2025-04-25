@@ -89,11 +89,13 @@ class P2PNode:
 
     def _send_full_chain(self, addr):
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+        identity = f"{self.self_ip}:{self.port}"  # 加上自己是誰
         for fname in files:
             with open(fname, 'r', encoding='utf-8') as f:
                 content = f.read()
-                msg = f"CHAIN:{fname}\n{content}"
+                msg = f"CHAIN:{identity}:{fname}\n{content}"
                 self.sock.sendto(msg.encode('utf-8'), addr)
+
 
     def _command_interface(self):
         while True:
@@ -242,25 +244,27 @@ def receive_chains(sock, peers, timeout=3):
     chains = {}
 
     for peer in peers:
-        print(f"\n📡 正在從 {peer} 接收鏈資料...")
+        print(f"\n📡 正在從 {peer} 請求鏈資料...")
         sock.sendto("REQUEST_CHAIN".encode('utf-8'), peer)
 
     sock.settimeout(timeout)
-    peer_chains = {}
     try:
         while True:
             data, addr = sock.recvfrom(8192)
             text = data.decode('utf-8')
             if text.startswith("CHAIN:"):
-                filename, content = text.split('\n', 1)
-                filename = filename.replace("CHAIN:", "").strip()
-                if addr not in chains:
-                    chains[addr] = {}
-                chains[addr][filename] = content
+                parts = text.split('\n', 1)
+                header = parts[0]
+                content = parts[1]
+                _, identity, filename = header.split(':', 2)
+                if identity not in chains:
+                    chains[identity] = {}
+                chains[identity][filename.strip()] = content
     except socket.timeout:
-        print(f"✅ 從 peers 接收完成，共收到 {len(chains)} 個節點的資料。")
+        print(f"✅ 接收完成，共收到 {len(chains)} 個節點的鏈。")
 
     return chains
+
 
 
 
@@ -343,47 +347,44 @@ def check_all_chains(checker):
 
     chains = receive_chains(sock, PEERS)
 
-    # ✅ 加入自己本地的鏈
+    # ✅ 加上自己的本地鏈
     local_chain = {}
     files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
     for fname in files:
         with open(fname, 'r', encoding='utf-8') as f:
             local_chain[fname] = f.read()
 
-    local_ip = socket.gethostbyname(socket.gethostname())
-    local_addr = (local_ip.strip(), 8001)
-    chains[local_addr] = local_chain
+    local_identity = f"{socket.gethostbyname(socket.gethostname())}:8001"  # 這裡8001請根據自己的port設
+    chains[local_identity] = local_chain
 
-    addr_to_hash = {}
-    for addr, chain_dict in chains.items():
-        clean_addr = (addr[0].strip(), addr[1])
-        addr_to_hash[clean_addr] = hash_chain(chain_dict)
+    addr_to_hash = {identity: hash_chain(chain_dict) for identity, chain_dict in chains.items()}
 
     print("\n[各節點雜湊值]")
-    for addr, h in addr_to_hash.items():
-        print(f"{addr[0]}:{addr[1]} → {h}")
+    for identity, h in addr_to_hash.items():
+        print(f"{identity} → {h}")
 
     print("\n[比對結果]")
-    addrs = list(addr_to_hash.keys())
-    for i in range(len(addrs)):
-        for j in range(i + 1, len(addrs)):
-            addr1, addr2 = addrs[i], addrs[j]
-            h1, h2 = addr_to_hash[addr1], addr_to_hash[addr2]
+    identities = list(addr_to_hash.keys())
+    for i in range(len(identities)):
+        for j in range(i + 1, len(identities)):
+            id1, id2 = identities[i], identities[j]
+            h1, h2 = addr_to_hash[id1], addr_to_hash[id2]
             verdict = "✅" if h1 == h2 else "❌"
-            print(f"{addr1[1]} vs {addr2[1]}: {verdict}")
+            print(f"{id1} vs {id2}: {verdict}")
 
     print("\n[診斷] 檢查每個節點是否與多數一致：")
     hash_counts = Counter(addr_to_hash.values())
     most_common_hash, _ = hash_counts.most_common(1)[0]
-    for addr, h in addr_to_hash.items():
+    for identity, h in addr_to_hash.items():
         if h == most_common_hash:
-            print(f"{addr[0]}:{addr[1]} ✔️ 一致")
+            print(f"{identity} ✔️ 一致")
         else:
-            print(f"{addr[0]}:{addr[1]} ⚠️ 與多數不一致（可能被竄改）")
+            print(f"{identity} ⚠️ 與多數不一致（可能被篡改）")
 
+    # 同步本地鏈
     print("\n嘗試同步鏈內容...")
     majority_chain = None
-    for addr, chain_dict in chains.items():
+    for identity, chain_dict in chains.items():
         if hash_chain(chain_dict) == most_common_hash:
             majority_chain = chain_dict
             break
