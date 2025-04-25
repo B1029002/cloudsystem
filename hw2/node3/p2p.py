@@ -167,10 +167,12 @@ class P2PNode:
             return 0
 
         result = validate_blockchain(self.blockchain)
-        print("OK" if result == 0 else f"帳本鍊受損，受損區塊編號:{result}")
-
-        angel_tx = f"angel, {checker}, 10"
-        self._add_reward_and_broadcast(angel_tx)
+        if result == 0:
+            print("OK")
+            angel_tx = f"angel, {checker}, 10"
+            self._add_reward_and_broadcast(angel_tx)
+        else:
+            print(f"帳本鍊受損，受損區塊編號:{result}")
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
