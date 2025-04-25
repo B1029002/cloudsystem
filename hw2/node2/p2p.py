@@ -18,6 +18,7 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
+        self.self_ip = socket.gethostbyname(socket.gethostname())  # 加入本機IP判別
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -184,9 +185,13 @@ class P2PNode:
         print(f"Reward transaction written: {reward_tx}")
 
         for peer in self.peers:
+            peer_ip, _ = peer
+            if peer_ip == self.self_ip:
+                continue  # 不要廣播給自己
             msg = f"REWARD_BROADCAST: {reward_tx}"
             self.sock.sendto(msg.encode('utf-8'), peer)
 
+# --- 以下是 checkAllChains 相關函數，無需更動 ---
 def send_check_last_hash(sock, peers):
     for peer in peers:
         sock.sendto("CHECK_LAST_HASH".encode('utf-8'), peer)
