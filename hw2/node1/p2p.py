@@ -7,7 +7,7 @@ import time
 from collections import Counter
 from blockchain import Blockchain
 
-PEERS = [('172.17.0.2', 8001), ('172.17.0.3', 8002), ('172.17.0.4', 8003)]
+PEERS = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
 TIMEOUT = 3
 
 class P2PNode:
@@ -18,7 +18,7 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
-        self.self_ip = '127.0.0.1'
+        self.self_ip = '172.17.0.2'
         self.self_addr = (self.self_ip, self.port)
 
     def start(self):
@@ -331,7 +331,22 @@ def check_all_chains(checker):
 
     chains = receive_chains(sock, PEERS)
 
-    addr_to_hash = {addr: hash_chain(chain_dict) for addr, chain_dict in chains.items()}
+    # ✅ 加入自己本地的鏈
+    local_chain = {}
+    files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+    for fname in files:
+        with open(fname, 'r', encoding='utf-8') as f:
+            local_chain[fname] = f.read()
+
+    # 取得本地 IP
+    local_ip = socket.gethostbyname(socket.gethostname())
+    local_addr = (local_ip.strip(), 8001)  # 注意：這裡8001是你目前的port設定
+    chains[local_addr] = local_chain
+
+    addr_to_hash = {}
+    for addr, chain_dict in chains.items():
+        clean_addr = (addr[0].strip(), addr[1])
+        addr_to_hash[clean_addr] = hash_chain(chain_dict)
 
     print("\n[各節點雜湊值]")
     for addr, h in addr_to_hash.items():
@@ -348,7 +363,6 @@ def check_all_chains(checker):
 
     # 找出多數一致的鏈
     print("\n[診斷] 檢查每個節點是否與多數一致：")
-    from collections import Counter
     hash_counts = Counter(addr_to_hash.values())
     most_common_hash, _ = hash_counts.most_common(1)[0]
     for addr, h in addr_to_hash.items():
