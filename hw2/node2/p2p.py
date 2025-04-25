@@ -173,13 +173,14 @@ class P2PNode:
             return 0
 
         result = validate_blockchain(self.blockchain)
+
         if result == 0:
             print("OK")
             angel_tx = f"angel, {checker}, 10"
+            # ✅ 僅在區塊鏈完全正確時才獎勵
             self._add_reward_and_broadcast(angel_tx)
         else:
             print(f"帳本鏈受損，受損區塊編號:{result}")
-            # 不給獎勵，也不寫入任何交易
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
