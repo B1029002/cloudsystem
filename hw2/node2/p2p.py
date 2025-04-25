@@ -73,7 +73,6 @@ class P2PNode:
             else:
                 print(f"Received unknown message: {msg} from {addr}")
 
-
     def _send_full_chain(self, addr):
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
         for fname in files:
@@ -105,9 +104,6 @@ class P2PNode:
             elif cmd == "checkChain" and len(parts) == 2:
                 self._check_chain(parts[1])
             elif cmd == "checkAllChains" and len(parts) == 2:
-                for peer in self.peers:
-                    if peer != self.self_addr:
-                        self.sock.sendto(f"CHECK_ALL_CHAINS:{parts[1]}".encode('utf-8'), peer)
                 check_all_chains(parts[1])
             else:
                 print("Unknown or malformed command.")
@@ -183,8 +179,10 @@ class P2PNode:
         if result == 0:
             print("OK")
             angel_tx = f"angel, {checker}, 10"
+            # ✅ 僅在區塊鏈完全正確時才獎勵
             self._add_reward_and_broadcast(angel_tx)
         else:
+            # ❌ 鏈損壞時不能進行任何交易或獎勵！
             print(f"帳本鏈受損，受損區塊編號:{result}")
             return
 
@@ -392,7 +390,6 @@ def check_all_chains(checker):
             print("❌ Updated local blockchain is invalid. No reward given.")
     else:
         print("❌ Consensus failed. Chain is not trusted.")
-
 
 
 
