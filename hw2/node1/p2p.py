@@ -10,6 +10,14 @@ from blockchain import Blockchain
 PEERS = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
 TIMEOUT = 3
 
+def broadcast_chain(chain_dict):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        for peer in PEERS:
+            for fname, content in chain_dict.items():
+                msg = f"CHAIN:{fname}\n{content}"
+                sock.sendto(msg.encode('utf-8'), peer)
+                time.sleep(0.01)
+
 class P2PNode:
     def __init__(self, port, peers):
         self.port = port
@@ -18,7 +26,7 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
-        self.self_ip = '172.17.0.2'
+        self.self_ip = socket.gethostbyname(socket.gethostname())
         self.self_addr = (self.self_ip, self.port)
 
     def start(self):
@@ -43,7 +51,6 @@ class P2PNode:
                 self.sock.sendto(full_chain_hash.encode('utf-8'), addr)
 
             elif msg == "REQUEST_CHAIN":
-                # ✅ 修正：確保讀取的是最新硬碟內容
                 self.blockchain.load_from_files()
                 self._send_full_chain(addr)
 
@@ -68,7 +75,14 @@ class P2PNode:
                 print("Reward written to local blockchain.")
 
             elif msg.startswith("CHAIN:"):
-                pass
+                try:
+                    header, content = msg.split('\n', 1)
+                    filename = header.replace("CHAIN:", "").strip()
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    print(f"📥 Received and updated block: {filename}")
+                except Exception as e:
+                    print(f"❌ Error processing CHAIN message: {e}")
 
             else:
                 print(f"Received unknown message: {msg} from {addr}")
@@ -338,9 +352,8 @@ def check_all_chains(checker):
         with open(fname, 'r', encoding='utf-8') as f:
             local_chain[fname] = f.read()
 
-    # 取得本地 IP
     local_ip = socket.gethostbyname(socket.gethostname())
-    local_addr = (local_ip.strip(), 8001)  # 注意：這裡8001是你目前的port設定
+    local_addr = (local_ip.strip(), 8001)
     chains[local_addr] = local_chain
 
     addr_to_hash = {}
@@ -361,7 +374,6 @@ def check_all_chains(checker):
             verdict = "✅" if h1 == h2 else "❌"
             print(f"{addr1[1]} vs {addr2[1]}: {verdict}")
 
-    # 找出多數一致的鏈
     print("\n[診斷] 檢查每個節點是否與多數一致：")
     hash_counts = Counter(addr_to_hash.values())
     most_common_hash, _ = hash_counts.most_common(1)[0]
@@ -371,7 +383,6 @@ def check_all_chains(checker):
         else:
             print(f"{addr[0]}:{addr[1]} ⚠️ 與多數不一致（可能被竄改）")
 
-    # 同步本地鏈
     print("\n嘗試同步鏈內容...")
     majority_chain = None
     for addr, chain_dict in chains.items():
@@ -381,7 +392,8 @@ def check_all_chains(checker):
 
     if majority_chain:
         overwrite_local_chain(majority_chain)
-        print("📥 Local chain updated with majority chain.")
+        broadcast_chain(majority_chain)
+        print("📥 Local chain updated and broadcasted to others.")
 
         print("✅ Validating updated local blockchain...")
         if validate_local_chain():
@@ -390,6 +402,7 @@ def check_all_chains(checker):
             print("❌ Updated local blockchain is invalid. No reward given.")
     else:
         print("❌ Consensus failed. Chain is not trusted.")
+
 
 
 
