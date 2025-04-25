@@ -180,7 +180,9 @@ class P2PNode:
             # ✅ 僅在區塊鏈完全正確時才獎勵
             self._add_reward_and_broadcast(angel_tx)
         else:
+            # ❌ 鏈損壞時不能進行任何交易或獎勵！
             print(f"帳本鏈受損，受損區塊編號:{result}")
+            return
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
