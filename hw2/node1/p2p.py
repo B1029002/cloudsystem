@@ -1,6 +1,7 @@
 import socket
 import threading
 import os
+import hashlib
 from blockchain import Blockchain
 
 class P2PNode:
@@ -22,8 +23,14 @@ class P2PNode:
             msg = data.decode('utf-8')
 
             if msg == "CHECK_LAST_HASH":
-                last_hash = self.blockchain.blocks[-1].hash
-                self.sock.sendto(last_hash.encode('utf-8'), addr)
+                chain_data = ""
+                files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+                for fname in files:
+                    with open(fname, 'r', encoding='utf-8') as f:
+                        chain_data += f.read()
+                full_chain_hash = hashlib.sha256(chain_data.encode('utf-8')).hexdigest()
+                self.sock.sendto(full_chain_hash.encode('utf-8'), addr)
+
 
             elif msg == "REQUEST_CHAIN":
                 self._send_full_chain(addr)
