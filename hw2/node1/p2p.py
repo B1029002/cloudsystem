@@ -18,7 +18,8 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
-        self.self_ip = socket.gethostbyname(socket.gethostname())  # 加入本機IP判別
+        self.self_ip = '172.17.0.2'
+        self.self_addr = (self.self_ip, self.port)
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -28,6 +29,9 @@ class P2PNode:
         while True:
             data, addr = self.sock.recvfrom(8192)
             msg = data.decode('utf-8')
+
+            if addr == self.self_addr:
+                continue  # 忽略自己發送的訊息
 
             if msg == "CHECK_LAST_HASH":
                 chain_data = ""
@@ -153,9 +157,10 @@ class P2PNode:
         self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
         print(f"Transaction success, written in {block_index}.txt")
 
+        tx_data = f"TRANSACTION_BROADCAST: {transaction}"
         for peer in self.peers:
-            tx_data = f"TRANSACTION_BROADCAST: {transaction}"
-            self.sock.sendto(tx_data.encode('utf-8'), peer)
+            if peer != self.self_addr:
+                self.sock.sendto(tx_data.encode('utf-8'), peer)
 
     def _check_chain(self, checker):
         def validate_blockchain(blockchain):
@@ -173,7 +178,7 @@ class P2PNode:
             angel_tx = f"angel, {checker}, 10"
             self._add_reward_and_broadcast(angel_tx)
         else:
-            print(f"帳本鍊受損，受損區塊編號:{result}")
+            print(f"帳本鏈受損，受損區塊編號:{result}")
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
@@ -184,14 +189,12 @@ class P2PNode:
         self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
         print(f"Reward transaction written: {reward_tx}")
 
+        msg = f"REWARD_BROADCAST: {reward_tx}"
         for peer in self.peers:
-            peer_ip, _ = peer
-            if peer_ip == self.self_ip:
-                continue  # 不要廣播給自己
-            msg = f"REWARD_BROADCAST: {reward_tx}"
-            self.sock.sendto(msg.encode('utf-8'), peer)
+            if peer != self.self_addr:
+                self.sock.sendto(msg.encode('utf-8'), peer)
 
-# --- 以下是 checkAllChains 相關函數，無需更動 ---
+# --- checkAllChains 相關函數 ---
 def send_check_last_hash(sock, peers):
     for peer in peers:
         sock.sendto("CHECK_LAST_HASH".encode('utf-8'), peer)
