@@ -43,6 +43,8 @@ class P2PNode:
                 self.sock.sendto(full_chain_hash.encode('utf-8'), addr)
 
             elif msg == "REQUEST_CHAIN":
+                # ✅ 修正：確保讀取的是最新硬碟內容
+                self.blockchain.load_from_files()
                 self._send_full_chain(addr)
 
             elif msg.startswith("TRANSACTION_BROADCAST: "):
@@ -70,6 +72,7 @@ class P2PNode:
 
             else:
                 print(f"Received unknown message: {msg} from {addr}")
+
 
     def _send_full_chain(self, addr):
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
