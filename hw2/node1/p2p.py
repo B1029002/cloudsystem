@@ -179,6 +179,7 @@ class P2PNode:
             self._add_reward_and_broadcast(angel_tx)
         else:
             print(f"帳本鏈受損，受損區塊編號:{result}")
+            # 不給獎勵，也不寫入任何交易
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
@@ -193,6 +194,7 @@ class P2PNode:
         for peer in self.peers:
             if peer != self.self_addr:
                 self.sock.sendto(msg.encode('utf-8'), peer)
+
 
 # --- checkAllChains 相關函數 ---
 def send_check_last_hash(sock, peers):
@@ -330,6 +332,7 @@ def check_all_chains(checker):
             print("Local blockchain is invalid. No reward given.")
     else:
         print("Consensus failed. Chain is not trusted.")
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == "--checkAllChains":
