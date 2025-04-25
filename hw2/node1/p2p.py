@@ -317,8 +317,26 @@ def check_all_chains(checker):
     listener_thread.start()
     listener_thread.join()
 
-    print("\nComparing hashes:")
-    compare_hashes(results)
+    # ✅ 雜湊比對：印出每個節點間是否一致
+    print("\n[比對中] 與其他 client 帳本進行對比：")
+    peers = sorted(results.items(), key=lambda x: x[0][1])
+    for i in range(len(peers)):
+        for j in range(i + 1, len(peers)):
+            addr1, hash1 = peers[i]
+            addr2, hash2 = peers[j]
+            verdict = "✅" if hash1 == hash2 else "❌"
+            print(f"{addr1[0]}:{addr1[1]} vs {addr2[0]}:{addr2[1]}: {verdict}")
+
+    # ✅ 多數雜湊分析
+    print("\n[診斷] 檢查每個節點是否與多數一致：")
+    from collections import Counter
+    hash_counts = Counter(results.values())
+    most_common_hash, _ = hash_counts.most_common(1)[0]
+    for addr, h in results.items():
+        if h == most_common_hash:
+            print(f"{addr[0]}:{addr[1]} ✔️ 一致")
+        else:
+            print(f"{addr[0]}:{addr[1]} ⚠️ 與多數不一致（可能被竄改）")
 
     print("\nRequesting chains...")
     request_all_chains(sock)
@@ -335,6 +353,7 @@ def check_all_chains(checker):
             print("Local blockchain is invalid. No reward given.")
     else:
         print("Consensus failed. Chain is not trusted.")
+
 
 
 if __name__ == '__main__':
