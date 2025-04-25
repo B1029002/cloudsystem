@@ -18,7 +18,7 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
-        self.self_ip = '172.17.0.2'
+        self.self_ip = '127.0.0.1'
         self.self_addr = (self.self_ip, self.port)
 
     def start(self):
