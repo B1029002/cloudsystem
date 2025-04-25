@@ -245,25 +245,23 @@ def receive_chains(sock, peers, timeout=3):
         print(f"\n📡 正在從 {peer} 接收鏈資料...")
         sock.sendto("REQUEST_CHAIN".encode('utf-8'), peer)
 
-        sock.settimeout(timeout)
-        peer_chain = {}
-        try:
-            while True:
-                data, addr = sock.recvfrom(8192)
-                if addr != peer:
-                    continue  # 只接收來自該 peer 的資料
-
-                text = data.decode('utf-8')
-                if text.startswith("CHAIN:"):
-                    filename, content = text.split('\n', 1)
-                    filename = filename.replace("CHAIN:", "").strip()
-                    peer_chain[filename] = content
-        except socket.timeout:
-            print(f"✅ 從 {peer} 接收完成，共收到 {len(peer_chain)} 個區塊檔案。")
-
-        chains[peer] = peer_chain
+    sock.settimeout(timeout)
+    peer_chains = {}
+    try:
+        while True:
+            data, addr = sock.recvfrom(8192)
+            text = data.decode('utf-8')
+            if text.startswith("CHAIN:"):
+                filename, content = text.split('\n', 1)
+                filename = filename.replace("CHAIN:", "").strip()
+                if addr not in chains:
+                    chains[addr] = {}
+                chains[addr][filename] = content
+    except socket.timeout:
+        print(f"✅ 從 peers 接收完成，共收到 {len(chains)} 個節點的資料。")
 
     return chains
+
 
 
 
