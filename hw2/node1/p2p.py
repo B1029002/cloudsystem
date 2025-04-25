@@ -222,21 +222,34 @@ def listen_for_responses(sock, expected, results):
             print("Timeout waiting for responses.")
             break
 
-def receive_chains(sock, timeout=5):
-    sock.settimeout(timeout)
+def receive_chains(sock, peers, timeout=3):
     chains = {}
-    try:
-        while True:
-            data, addr = sock.recvfrom(8192)
-            text = data.decode('utf-8')
-            if text.startswith("CHAIN:"):
-                filename, content = text.split('\n', 1)
-                if addr not in chains:
-                    chains[addr] = {}
-                chains[addr][filename.replace("CHAIN:", "").strip()] = content
-    except socket.timeout:
-        pass
+
+    for peer in peers:
+        print(f"\n📡 正在從 {peer} 接收鏈資料...")
+        sock.sendto("REQUEST_CHAIN".encode('utf-8'), peer)
+
+        sock.settimeout(timeout)
+        peer_chain = {}
+        try:
+            while True:
+                data, addr = sock.recvfrom(8192)
+                if addr != peer:
+                    continue  # 只接收來自該 peer 的資料
+
+                text = data.decode('utf-8')
+                if text.startswith("CHAIN:"):
+                    filename, content = text.split('\n', 1)
+                    filename = filename.replace("CHAIN:", "").strip()
+                    peer_chain[filename] = content
+        except socket.timeout:
+            print(f"✅ 從 {peer} 接收完成，共收到 {len(peer_chain)} 個區塊檔案。")
+
+        chains[peer] = peer_chain
+
     return chains
+
+
 
 def hash_chain(chain_dict):
     all_data = ""
@@ -264,13 +277,19 @@ def overwrite_local_chain(chain_dict):
             f.write(content)
 
 def compare_hashes(results):
-    peers = sorted(results.items(), key=lambda x: x[0][1])
-    for i in range(len(peers)):
-        for j in range(i + 1, len(peers)):
-            addr1, hash1 = peers[i]
-            addr2, hash2 = peers[j]
-            verdict = "Yes" if hash1 == hash2 else "No"
-            print(f"Compare {addr1} and {addr2}: {verdict}")
+    sorted_peers = sorted(results.items(), key=lambda x: x[0][1])  # 根據 port 排序
+    labels = {}
+    for idx, (addr, _) in enumerate(sorted_peers):
+        labels[addr] = f"client{idx + 1}"
+
+    print("[比對中] 與其他 client 帳本進行對比：")
+    for i in range(len(sorted_peers)):
+        for j in range(i + 1, len(sorted_peers)):
+            addr1, hash1 = sorted_peers[i]
+            addr2, hash2 = sorted_peers[j]
+            verdict = "✅" if hash1 == hash2 else "❌"
+            print(f"{labels[addr1]} vs {labels[addr2]}: {verdict}")
+
 
 def validate_local_chain():
     blockchain = Blockchain()
@@ -308,51 +327,54 @@ def check_all_chains(checker):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', 0))
 
-    results = {}
-    print("Sending CHECK_LAST_HASH to all peers...")
-    send_check_last_hash(sock, PEERS)
+    chains = receive_chains(sock, PEERS)
 
-    print("Waiting for responses...")
-    listener_thread = threading.Thread(target=listen_for_responses, args=(sock, len(PEERS), results))
-    listener_thread.start()
-    listener_thread.join()
+    addr_to_hash = {addr: hash_chain(chain_dict) for addr, chain_dict in chains.items()}
 
-    # ✅ 雜湊比對：印出每個節點間是否一致
-    print("\n[比對中] 與其他 client 帳本進行對比：")
-    peers = sorted(results.items(), key=lambda x: x[0][1])
-    for i in range(len(peers)):
-        for j in range(i + 1, len(peers)):
-            addr1, hash1 = peers[i]
-            addr2, hash2 = peers[j]
-            verdict = "✅" if hash1 == hash2 else "❌"
-            print(f"{addr1[0]}:{addr1[1]} vs {addr2[0]}:{addr2[1]}: {verdict}")
+    print("\n[各節點雜湊值]")
+    for addr, h in addr_to_hash.items():
+        print(f"{addr[0]}:{addr[1]} → {h}")
 
-    # ✅ 多數雜湊分析
+    print("\n[比對結果]")
+    addrs = list(addr_to_hash.keys())
+    for i in range(len(addrs)):
+        for j in range(i + 1, len(addrs)):
+            addr1, addr2 = addrs[i], addrs[j]
+            h1, h2 = addr_to_hash[addr1], addr_to_hash[addr2]
+            verdict = "✅" if h1 == h2 else "❌"
+            print(f"{addr1[1]} vs {addr2[1]}: {verdict}")
+
+    # 找出多數一致的鏈
     print("\n[診斷] 檢查每個節點是否與多數一致：")
     from collections import Counter
-    hash_counts = Counter(results.values())
+    hash_counts = Counter(addr_to_hash.values())
     most_common_hash, _ = hash_counts.most_common(1)[0]
-    for addr, h in results.items():
+    for addr, h in addr_to_hash.items():
         if h == most_common_hash:
             print(f"{addr[0]}:{addr[1]} ✔️ 一致")
         else:
             print(f"{addr[0]}:{addr[1]} ⚠️ 與多數不一致（可能被竄改）")
 
-    print("\nRequesting chains...")
-    request_all_chains(sock)
-    chains = receive_chains(sock)
-    majority_chain = find_majority_chain(chains)
+    # 同步本地鏈
+    print("\n嘗試同步鏈內容...")
+    majority_chain = None
+    for addr, chain_dict in chains.items():
+        if hash_chain(chain_dict) == most_common_hash:
+            majority_chain = chain_dict
+            break
 
     if majority_chain:
         overwrite_local_chain(majority_chain)
-        print("Local chain updated with majority chain.")
-        print("\nValidating local blockchain...")
+        print("📥 Local chain updated with majority chain.")
+
+        print("✅ Validating updated local blockchain...")
         if validate_local_chain():
             reward_user(checker)
         else:
-            print("Local blockchain is invalid. No reward given.")
+            print("❌ Updated local blockchain is invalid. No reward given.")
     else:
-        print("Consensus failed. Chain is not trusted.")
+        print("❌ Consensus failed. Chain is not trusted.")
+
 
 
 
