@@ -20,7 +20,6 @@ class P2PNode:
         self.blockchain.load_from_files()
         self.self_ip = '172.17.0.4'
         self.self_addr = (self.self_ip, self.port)
-        self.checking_chain = False
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -32,7 +31,7 @@ class P2PNode:
             msg = data.decode('utf-8')
 
             if addr == self.self_addr:
-                continue
+                continue  # 忽略自己發送的訊息
 
             if msg == "CHECK_LAST_HASH":
                 chain_data = ""
@@ -47,9 +46,6 @@ class P2PNode:
                 self._send_full_chain(addr)
 
             elif msg.startswith("TRANSACTION_BROADCAST: "):
-                if self.checking_chain:
-                    print("🚫 忽略交易：正在檢查鏈")
-                    continue
                 tx = msg.replace("TRANSACTION_BROADCAST: ", "").strip()
                 print(f"Received broadcast transaction: {tx} from {addr}")
                 if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
@@ -60,9 +56,6 @@ class P2PNode:
                 print("Transaction written to local blockchain.")
 
             elif msg.startswith("REWARD_BROADCAST: "):
-                if self.checking_chain:
-                    print("🚫 忽略獎勵：正在檢查鏈")
-                    continue
                 reward_tx = msg.replace("REWARD_BROADCAST: ", "").strip()
                 print(f"Received reward broadcast: {reward_tx} from {addr}")
                 if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
