@@ -15,7 +15,7 @@ class P2PNode:
         self.blockchain.load_from_files()
         all_peers = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
         self.peers = [peer for peer in all_peers if peer[0] != self.self_ip]
-        self.received_hashes = {}  # 用來收集各節點回傳的hash
+        self.received_hashes = {}
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -67,7 +67,6 @@ class P2PNode:
                 node_ip = parts[1]
                 hash_value = parts[2]
                 self.received_hashes[node_ip] = hash_value
-                self._compare_hashes()
 
             elif msg.startswith("CHAIN:"):
                 pass
@@ -206,13 +205,35 @@ class P2PNode:
 
     def _compare_hashes(self):
         nodes = list(self.received_hashes.keys())
+        comparison_results = []
+        all_match = True
+
         for i in range(len(nodes)):
             for j in range(i + 1, len(nodes)):
                 n1, n2 = nodes[i], nodes[j]
                 if self.received_hashes[n1] == self.received_hashes[n2]:
-                    print(f"{n1} vs {n2}: Yes")
+                    comparison_results.append(f"{n1} vs {n2} : Yes")
                 else:
-                    print(f"{n1} vs {n2}: No")
+                    comparison_results.append(f"{n1} vs {n2} : No")
+                    all_match = False
+
+        for result in comparison_results:
+            print(result)
+
+        if not all_match:
+            wrong_block = self._find_wrong_block()
+            if wrong_block != -1:
+                print(f"有誤在 {wrong_block}.txt")
+            else:
+                print("有誤但找不到是哪個區塊")
+
+    def _find_wrong_block(self):
+        for i in range(1, len(self.blockchain.blocks)):
+            prev_block = self.blockchain.blocks[i - 1]
+            current_block = self.blockchain.blocks[i]
+            if current_block.previous_hash != prev_block.hash:
+                return i + 1
+        return -1
 
     def _check_all_chains(self, checker):
         print(f"Starting checkAllChains by {checker}...")
