@@ -180,7 +180,7 @@ class P2PNode:
             angel_tx = f"angel, {checker}, 10"
             self._add_reward_and_broadcast(angel_tx)
         else:
-            print(f"帳本鍊受損，受損區塊編號:{result}，不給予獎勵")
+            print(f"帳本鍊受損，不給予獎勵")
 
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
@@ -206,7 +206,6 @@ class P2PNode:
     def _compare_hashes(self):
         nodes = list(self.received_hashes.keys())
         comparison_results = []
-        all_match = True
 
         for i in range(len(nodes)):
             for j in range(i + 1, len(nodes)):
@@ -215,33 +214,12 @@ class P2PNode:
                     comparison_results.append(f"{n1} vs {n2} : Yes")
                 else:
                     comparison_results.append(f"{n1} vs {n2} : No")
-                    all_match = False
 
         for result in comparison_results:
             print(result)
 
-        if not all_match:
-            wrong_block = self._find_wrong_block()
-            if wrong_block != -1:
-                print(f"有誤在 {wrong_block}.txt")
-            else:
-                print("有誤但找不到是哪個區塊")
-
-    def _find_wrong_block(self):
-        for i in range(1, len(self.blockchain.blocks)):
-            prev_block = self.blockchain.blocks[i - 1]
-            current_block = self.blockchain.blocks[i]
-            if current_block.previous_hash != prev_block.hash:
-                return i + 1
-        return -1
-
     def _check_all_chains(self, checker):
         print(f"Starting checkAllChains by {checker}...")
-
-        self_check_result = self._validate_full_blockchain()
-        if self_check_result != 0:
-            print(f"Local chain error at block {self_check_result}. Aborting.")
-            return
 
         msg = f"CHECK_ALL_REQUEST:{checker}"
         for peer in self.peers:
@@ -257,14 +235,6 @@ class P2PNode:
 
         angel_tx = f"angel, {checker}, 100"
         self._add_reward_and_broadcast(angel_tx)
-
-    def _validate_full_blockchain(self):
-        for i in range(1, len(self.blockchain.blocks)):
-            prev_block = self.blockchain.blocks[i - 1]
-            current_block = self.blockchain.blocks[i]
-            if current_block.previous_hash != prev_block.hash:
-                return i + 1
-        return 0
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
