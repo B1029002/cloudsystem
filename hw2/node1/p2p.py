@@ -2,6 +2,7 @@ import socket
 import threading
 import os
 import sys
+import time
 from blockchain import Blockchain
 
 class P2PNode:
@@ -12,10 +13,9 @@ class P2PNode:
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
-
-        # 設定 peers，只包含「其他」IP
         all_peers = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
         self.peers = [peer for peer in all_peers if peer[0] != self.self_ip]
+        self.received_hashes = {}  # 用來收集各節點回傳的hash
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -53,6 +53,22 @@ class P2PNode:
                 self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
                 print("Reward written to local blockchain.")
 
+            elif msg.startswith("CHECK_ALL_REQUEST:"):
+                sender = msg.split(":")[1]
+                print(f"Received checkAllChains request from {sender}")
+                my_hash = self._calculate_full_chain_hash()
+                reply = f"CHECK_ALL_RESULT:{self.self_ip}:{my_hash}"
+                for peer in self.peers:
+                    self.sock.sendto(reply.encode('utf-8'), peer)
+                self.received_hashes[self.self_ip] = my_hash
+
+            elif msg.startswith("CHECK_ALL_RESULT:"):
+                parts = msg.split(":")
+                node_ip = parts[1]
+                hash_value = parts[2]
+                self.received_hashes[node_ip] = hash_value
+                self._compare_hashes()
+
             elif msg.startswith("CHAIN:"):
                 pass
 
@@ -69,7 +85,7 @@ class P2PNode:
 
     def _command_interface(self):
         while True:
-            cmd_line = input("Enter a command (checkMoney, checkLog, transaction, checkChain): ").strip()
+            cmd_line = input("Enter a command (checkMoney, checkLog, transaction, checkChain, checkAllChains): ").strip()
             parts = cmd_line.split()
             if not parts:
                 continue
@@ -89,6 +105,8 @@ class P2PNode:
                     print("Invalid amount. Please enter a number.")
             elif cmd == "checkChain" and len(parts) == 2:
                 self._check_chain(parts[1])
+            elif cmd == "checkAllChains" and len(parts) == 2:
+                self._check_all_chains(parts[1])
             else:
                 print("Unknown or malformed command.")
 
@@ -165,7 +183,6 @@ class P2PNode:
         else:
             print(f"帳本鍊受損，受損區塊編號:{result}，不給予獎勵")
 
-
     def _add_reward_and_broadcast(self, reward_tx):
         if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
             self.blockchain.add_block([reward_tx])
@@ -178,6 +195,55 @@ class P2PNode:
         for peer in self.peers:
             msg = f"REWARD_BROADCAST: {reward_tx}"
             self.sock.sendto(msg.encode('utf-8'), peer)
+
+    def _calculate_full_chain_hash(self):
+        full_content = ""
+        files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+        for fname in files:
+            with open(fname, 'r', encoding='utf-8') as f:
+                full_content += f.read()
+        return self.blockchain.calculate_hash(full_content)
+
+    def _compare_hashes(self):
+        nodes = list(self.received_hashes.keys())
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                n1, n2 = nodes[i], nodes[j]
+                if self.received_hashes[n1] == self.received_hashes[n2]:
+                    print(f"{n1} vs {n2}: Yes")
+                else:
+                    print(f"{n1} vs {n2}: No")
+
+    def _check_all_chains(self, checker):
+        print(f"Starting checkAllChains by {checker}...")
+
+        self_check_result = self._validate_full_blockchain()
+        if self_check_result != 0:
+            print(f"Local chain error at block {self_check_result}. Aborting.")
+            return
+
+        msg = f"CHECK_ALL_REQUEST:{checker}"
+        for peer in self.peers:
+            self.sock.sendto(msg.encode('utf-8'), peer)
+
+        my_hash = self._calculate_full_chain_hash()
+        self.received_hashes[self.self_ip] = my_hash
+
+        print("Waiting for nodes to reply...")
+        time.sleep(5)
+
+        self._compare_hashes()
+
+        angel_tx = f"angel, {checker}, 100"
+        self._add_reward_and_broadcast(angel_tx)
+
+    def _validate_full_blockchain(self):
+        for i in range(1, len(self.blockchain.blocks)):
+            prev_block = self.blockchain.blocks[i - 1]
+            current_block = self.blockchain.blocks[i]
+            if current_block.previous_hash != prev_block.hash:
+                return i + 1
+        return 0
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
