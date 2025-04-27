@@ -56,7 +56,7 @@ class P2PNode:
             elif msg.startswith("CHECK_ALL_REQUEST:"):
                 sender = msg.split(":")[1]
                 print(f"Received checkAllChains request from {sender}")
-                my_hash = self._calculate_full_chain_hash()
+                my_hash = self._gather_full_blockchain_content()
                 reply = f"CHECK_ALL_RESULT:{self.self_ip}:{my_hash}"
                 for peer in self.peers:
                     self.sock.sendto(reply.encode('utf-8'), peer)
@@ -195,13 +195,13 @@ class P2PNode:
             msg = f"REWARD_BROADCAST: {reward_tx}"
             self.sock.sendto(msg.encode('utf-8'), peer)
 
-    def _calculate_full_chain_hash(self):
+    def _gather_full_blockchain_content(self):
         full_content = ""
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
         for fname in files:
             with open(fname, 'r', encoding='utf-8') as f:
                 full_content += f.read()
-        return self.blockchain.calculate_hash(full_content)
+        return full_content
 
     def _compare_hashes(self):
         nodes = list(self.received_hashes.keys())
@@ -218,6 +218,41 @@ class P2PNode:
         for result in comparison_results:
             print(result)
 
+    def _consensus(self):
+        contents = list(self.received_hashes.values())
+        content_counts = {}
+
+        for content in contents:
+            if content not in content_counts:
+                content_counts[content] = 0
+            content_counts[content] += 1
+
+        majority_content = None
+        for content, count in content_counts.items():
+            if count > len(contents) // 2:
+                majority_content = content
+                break
+
+        if majority_content is not None:
+            print("達成共識，正在同步帳本...")
+            self._replace_local_blockchain(majority_content)
+        else:
+            print("系統不被信任，帳本保持原樣。")
+
+    def _replace_local_blockchain(self, content):
+        files = [f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()]
+        for f in files:
+            os.remove(f)
+
+        blocks = content.split('Sha256 of previous block: ')
+        blocks = [b for b in blocks if b.strip()]
+
+        for idx, block in enumerate(blocks, start=1):
+            filename = f"{idx}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write('Sha256 of previous block: ' + block.strip())
+        print("帳本同步完成。")
+
     def _check_all_chains(self, checker):
         print(f"Starting checkAllChains by {checker}...")
 
@@ -225,13 +260,14 @@ class P2PNode:
         for peer in self.peers:
             self.sock.sendto(msg.encode('utf-8'), peer)
 
-        my_hash = self._calculate_full_chain_hash()
+        my_hash = self._gather_full_blockchain_content()
         self.received_hashes[self.self_ip] = my_hash
 
         print("Waiting for nodes to reply...")
         time.sleep(5)
 
         self._compare_hashes()
+        self._consensus()
 
         angel_tx = f"angel, {checker}, 100"
         self._add_reward_and_broadcast(angel_tx)
