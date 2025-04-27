@@ -1,16 +1,21 @@
 import socket
 import threading
 import os
+import sys
 from blockchain import Blockchain
 
 class P2PNode:
-    def __init__(self, port, peers):
+    def __init__(self, self_ip, port):
+        self.self_ip = self_ip
         self.port = port
-        self.peers = peers
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('0.0.0.0', self.port))
         self.blockchain = Blockchain()
         self.blockchain.load_from_files()
+
+        # 設定 peers，只包含「其他」IP
+        all_peers = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
+        self.peers = [peer for peer in all_peers if peer[0] != self.self_ip]
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -172,20 +177,11 @@ class P2PNode:
             self.sock.sendto(msg.encode('utf-8'), peer)
 
 if __name__ == '__main__':
-    import os
+    if len(sys.argv) != 2:
+        print("Usage: python3 p2p.py <self_ip>")
+        sys.exit(1)
 
-    my_ip = os.getenv("MY_IP")
-    if my_ip == "172.17.0.2":
-        port = 8001
-        peers = [("172.17.0.3", 8001), ("172.17.0.4", 8001)]
-    elif my_ip == "172.17.0.3":
-        port = 8001
-        peers = [("172.17.0.2", 8001), ("172.17.0.4", 8001)]
-    elif my_ip == "172.17.0.4":
-        port = 8001
-        peers = [("172.17.0.2", 8001), ("172.17.0.3", 8001)]
-    else:
-        raise ValueError("Unknown IP, please set MY_IP environment variable correctly.")
-
-    node = P2PNode(port, peers)
+    self_ip = sys.argv[1]
+    port = 8001
+    node = P2PNode(self_ip, port)
     node.start()
