@@ -3,6 +3,7 @@ import threading
 import os
 import sys
 import time
+import json
 from blockchain import Blockchain
 
 class P2PNode:
@@ -15,7 +16,7 @@ class P2PNode:
         self.blockchain.load_from_files()
         all_peers = [('172.17.0.2', 8001), ('172.17.0.3', 8001), ('172.17.0.4', 8001)]
         self.peers = [peer for peer in all_peers if peer[0] != self.self_ip]
-        self.received_hashes = {}
+        self.received_chains = {}
 
     def start(self):
         threading.Thread(target=self._listen, daemon=True).start()
@@ -23,56 +24,50 @@ class P2PNode:
 
     def _listen(self):
         while True:
-            data, addr = self.sock.recvfrom(8192)
+            data, addr = self.sock.recvfrom(65536)
             msg = data.decode('utf-8')
 
-            if msg == "CHECK_LAST_HASH":
-                last_hash = self.blockchain.blocks[-1].hash
-                self.sock.sendto(last_hash.encode('utf-8'), addr)
+            if msg.startswith("CHECK_ALL_REQUEST:"):
+                sender = msg.split(":")[1]
+                print(f"Received checkAllChains request from {sender}")
+                chain_data = self._gather_blockchain_contents()
+                reply = {"type": "CHAIN_DATA", "ip": self.self_ip, "chain": chain_data}
+                for peer in self.peers:
+                    self.sock.sendto(json.dumps(reply).encode('utf-8'), peer)
+                self.received_chains[self.self_ip] = chain_data
 
-            elif msg == "REQUEST_CHAIN":
-                self._send_full_chain(addr)
+            elif msg.startswith("{\"type\": \"CHAIN_DATA\""):
+                data = json.loads(msg)
+                ip = data["ip"]
+                chain = data["chain"]
+                self.received_chains[ip] = chain
+
+            elif msg.startswith("{\"type\": \"SYNC_BLOCK\""):
+                data = json.loads(msg)
+                index = data["index"]
+                content = data["content"]
+                self._sync_block(index, content)
 
             elif msg.startswith("TRANSACTION_BROADCAST: "):
                 tx = msg.replace("TRANSACTION_BROADCAST: ", "").strip()
-                print(f"Received broadcast transaction: {tx} from {addr}")
+                print(f"Received broadcast transaction: {tx}")
                 if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
                     self.blockchain.add_block([tx])
                 else:
                     self.blockchain.blocks[-1].transactions.append(tx)
                 self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
-                print("Transaction written to local blockchain.")
 
             elif msg.startswith("REWARD_BROADCAST: "):
                 reward_tx = msg.replace("REWARD_BROADCAST: ", "").strip()
-                print(f"Received reward broadcast: {reward_tx} from {addr}")
+                print(f"Received reward broadcast: {reward_tx}")
                 if not self.blockchain.blocks or len(self.blockchain.blocks[-1].transactions) >= 5:
                     self.blockchain.add_block([reward_tx])
                 else:
                     self.blockchain.blocks[-1].transactions.append(reward_tx)
                 self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
-                print("Reward written to local blockchain.")
-
-            elif msg.startswith("CHECK_ALL_REQUEST:"):
-                sender = msg.split(":")[1]
-                print(f"Received checkAllChains request from {sender}")
-                my_hash = self._gather_full_blockchain_content()
-                reply = f"CHECK_ALL_RESULT:{self.self_ip}:{my_hash}"
-                for peer in self.peers:
-                    self.sock.sendto(reply.encode('utf-8'), peer)
-                self.received_hashes[self.self_ip] = my_hash
-
-            elif msg.startswith("CHECK_ALL_RESULT:"):
-                parts = msg.split(":")
-                node_ip = parts[1]
-                hash_value = parts[2]
-                self.received_hashes[node_ip] = hash_value
-
-            elif msg.startswith("CHAIN:"):
-                pass
 
             else:
-                print(f"Received unknown message: {msg} from {addr}")
+                print(f"Received unknown message: {msg}")
 
     def _send_full_chain(self, addr):
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
@@ -88,7 +83,6 @@ class P2PNode:
             parts = cmd_line.split()
             if not parts:
                 continue
-
             cmd = parts[0]
             if cmd == "checkMoney" and len(parts) == 2:
                 self._check_money(parts[1])
@@ -187,71 +181,66 @@ class P2PNode:
             self.blockchain.add_block([reward_tx])
         else:
             self.blockchain.blocks[-1].transactions.append(reward_tx)
-
         self.blockchain.save_new_block_to_file(self.blockchain.blocks[-1])
         print(f"Reward transaction written: {reward_tx}")
-
         for peer in self.peers:
             msg = f"REWARD_BROADCAST: {reward_tx}"
             self.sock.sendto(msg.encode('utf-8'), peer)
 
-    def _gather_full_blockchain_content(self):
-        full_content = ""
+    def _gather_blockchain_contents(self):
+        contents = []
         files = sorted([f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
         for fname in files:
             with open(fname, 'r', encoding='utf-8') as f:
-                full_content += f.read()
-        return full_content
+                contents.append(f.read())
+        return contents
 
     def _compare_hashes(self):
-        nodes = list(self.received_hashes.keys())
+        nodes = list(self.received_chains.keys())
         comparison_results = []
-
         for i in range(len(nodes)):
             for j in range(i + 1, len(nodes)):
-                n1, n2 = nodes[i], nodes[j]
-                if self.received_hashes[n1] == self.received_hashes[n2]:
-                    comparison_results.append(f"{n1} vs {n2} : Yes")
+                if self.received_chains[nodes[i]] == self.received_chains[nodes[j]]:
+                    comparison_results.append(f"{nodes[i]} vs {nodes[j]} : Yes")
                 else:
-                    comparison_results.append(f"{n1} vs {n2} : No")
-
+                    comparison_results.append(f"{nodes[i]} vs {nodes[j]} : No")
         for result in comparison_results:
             print(result)
 
     def _consensus(self):
-        contents = list(self.received_hashes.values())
-        content_counts = {}
+        all_chains = self.received_chains
+        if len(all_chains) <= 1:
+            return
 
-        for content in contents:
-            if content not in content_counts:
-                content_counts[content] = 0
-            content_counts[content] += 1
+        chain_lengths = [len(chain) for chain in all_chains.values()]
+        max_len = max(chain_lengths)
+        consensus_blocks = {}
 
-        majority_content = None
-        for content, count in content_counts.items():
-            if count > len(contents) // 2:
-                majority_content = content
-                break
+        for idx in range(max_len):
+            block_versions = {}
+            for chain in all_chains.values():
+                if idx < len(chain):
+                    content = chain[idx]
+                    block_versions[content] = block_versions.get(content, 0) + 1
 
-        if majority_content is not None:
-            print("達成共識，正在同步帳本...")
-            self._replace_local_blockchain(majority_content)
-        else:
-            print("系統不被信任，帳本保持原樣。")
+            majority_block = None
+            for content, count in block_versions.items():
+                if count > len(all_chains) // 2:
+                    majority_block = content
+                    break
 
-    def _replace_local_blockchain(self, content):
-        files = [f for f in os.listdir('.') if f.endswith('.txt') and f[:-4].isdigit()]
-        for f in files:
-            os.remove(f)
+            if majority_block is not None:
+                self._sync_block(idx, majority_block)
+                sync_msg = {"type": "SYNC_BLOCK", "index": idx, "content": majority_block}
+                for peer in self.peers:
+                    self.sock.sendto(json.dumps(sync_msg).encode('utf-8'), peer)
 
-        blocks = content.split('Sha256 of previous block: ')
-        blocks = [b for b in blocks if b.strip()]
-
-        for idx, block in enumerate(blocks, start=1):
-            filename = f"{idx}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write('Sha256 of previous block: ' + block.strip())
-        print("帳本同步完成。")
+    def _sync_block(self, index, content):
+        filename = f"{index+1}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(content)
+        self.blockchain.load_from_files()
+        print(f"Block {index+1}同步完成。")
 
     def _check_all_chains(self, checker):
         print(f"Starting checkAllChains by {checker}...")
@@ -260,8 +249,7 @@ class P2PNode:
         for peer in self.peers:
             self.sock.sendto(msg.encode('utf-8'), peer)
 
-        my_hash = self._gather_full_blockchain_content()
-        self.received_hashes[self.self_ip] = my_hash
+        self.received_chains[self.self_ip] = self._gather_blockchain_contents()
 
         print("Waiting for nodes to reply...")
         time.sleep(5)
