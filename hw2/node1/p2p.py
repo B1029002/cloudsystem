@@ -234,6 +234,7 @@ class P2PNode:
                 sync_msg = {"type": "SYNC_BLOCK", "index": idx, "content": majority_block}
                 for peer in self.peers:
                     self.sock.sendto(json.dumps(sync_msg).encode('utf-8'), peer)
+                print("系統不被信任")
 
     def _sync_block(self, index, content):
         filename = f"{index+1}.txt"
