@@ -67,6 +67,6 @@ class Blockchain:
                 prev_block = block
                 i += 1
 
-    # 🔥 加這個就可以讓p2p.py找得到 calculate_hash
     def calculate_hash(self, content):
         return hashlib.sha256(content.encode()).hexdigest()
+
